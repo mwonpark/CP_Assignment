@@ -34,7 +34,6 @@ class ItemType(Enum):
 
 # ==========================================
 # 2. Item 및 Snake, RhythmManager 클래스
-# (이전 코드와 동일하므로 핵심 로직만 유지)
 # ==========================================
 class Item:
     def __init__(self, x: int, y: int, item_type: ItemType):
@@ -122,7 +121,7 @@ class RhythmManager:
         else: return Judgment.MISS
 
 # ==========================================
-# 3. GameEngine 클래스 (온라인 API 연동 추가)
+# 3. GameEngine 클래스
 # ==========================================
 class GameEngine:
     def __init__(self, grid_width: int = 20, grid_height: int = 20, base_bpm: float = 120.0):
@@ -130,48 +129,28 @@ class GameEngine:
         self.grid_height = grid_height
         self.base_bpm = base_bpm
         
-        # 온라인 서버 URL (Render.com에 배포된 Flask 서버)
         self.server_url = "https://cp-assignment-server.onrender.com/api/leaderboard"
+        self.highscore_file = Path("highscore.json")
         
-        # 오프라인 대비용 로컬 리더보드 경로 설정 (data 폴더 내부로 변경)
-        self.highscore_file = Path("data/highscore.json")
-        
-        # 💡 [자동 폴더 생성 로직 추가] 
-        # 상위 폴더(data/)가 없으면 생성하고, 이미 있으면 그냥 넘어갑니다.
-        self.highscore_file.parent.mkdir(parents=True, exist_ok=True)
-        
-        self.local_leaderboard: list[int] = self.load_local_leaderboard()
+        self.local_leaderboard: list[dict[str, Any]] = self.load_local_leaderboard()
         
         self.reset_game()
         self.state = GameState.READY 
 
-    # ------------------------------------------
-    # [신규] 온라인 서버 통신 로직 (방어적 코딩 적용)
-    # ------------------------------------------
     def fetch_server_leaderboard(self) -> list[dict[str, Any]]:
-        """
-        서버에서 글로벌 상위 10명의 리더보드를 가져옵니다.
-        네트워크 오류 시 빈 리스트를 반환하여 게임 크래시를 방지합니다.
-        """
         try:
             req = urllib.request.Request(self.server_url, method="GET")
-            # 타임아웃을 3초로 설정하여 게임이 멈추는 현상(Freezing) 방지
             with urllib.request.urlopen(req, timeout=3.0) as response:
                 if response.status == 200:
                     data = json.loads(response.read().decode('utf-8'))
                     return data.get("leaderboard", [])
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
             print(f"[네트워크 경고] 서버 순위표를 불러올 수 없습니다: {e}")
-            
         return []
 
     def send_score_to_server(self, player_name: str) -> bool:
-        """
-        플레이어의 이름과 현재 점수를 중앙 서버로 전송합니다.
-        :return: 전송 성공 여부 (True/False)
-        """
         if self.score <= 0:
-            return False # 0점은 굳이 서버에 보내지 않음
+            return False 
             
         payload = {"name": player_name, "score": self.score}
         data = json.dumps(payload).encode('utf-8')
@@ -186,27 +165,29 @@ class GameEngine:
                     return True
         except (urllib.error.URLError, TimeoutError) as e:
             print(f"[네트워크 오류] 점수 서버 전송 실패: {e}")
-            
         return False
 
-    # ------------------------------------------
-    # 기존 로컬 로직 및 게임 플레이 로직
-    # ------------------------------------------
-    def load_local_leaderboard(self) -> list[int]:
+    def load_local_leaderboard(self) -> list[dict[str, Any]]:
         if not self.highscore_file.exists(): return []
         try:
             with open(self.highscore_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                scores = data.get("leaderboard", [])
-                valid_scores = [int(s) for s in scores if isinstance(s, (int, float))]
-                return sorted(valid_scores, reverse=True)[:10]
+                raw_list = data.get("leaderboard", [])
+                
+                # 💡 [핵심 방어 코드] 과거의 숫자형 세이브 데이터를 딕셔너리로 안전하게 변환
+                cleaned_list = []
+                for item in raw_list:
+                    if isinstance(item, dict):
+                        cleaned_list.append(item)
+                    elif isinstance(item, (int, float)):
+                        cleaned_list.append({"name": "LOCAL", "score": int(item)})
+                return cleaned_list
         except Exception:
             return []
 
-    def register_local_score(self) -> None:
-        """오프라인 대비용 로컬 점수 저장"""
-        self.local_leaderboard.append(self.score)
-        self.local_leaderboard = sorted(self.local_leaderboard, reverse=True)[:10]
+    def register_local_score(self, player_name: str) -> None:
+        self.local_leaderboard.append({"name": player_name, "score": self.score})
+        self.local_leaderboard = sorted(self.local_leaderboard, key=lambda x: x.get("score", 0), reverse=True)[:10]
         try:
             with open(self.highscore_file, "w", encoding="utf-8") as f:
                 json.dump({"leaderboard": self.local_leaderboard}, f, indent=4)
@@ -281,6 +262,7 @@ class GameEngine:
 
     def update(self, elapsed_time: float) -> None:
         if self.state != GameState.PLAYING: return
+        
         if self.rhythm.is_beat_tick(elapsed_time, self.last_beat_time):
             self.snake.move()
             self.last_beat_time += self.rhythm.sec_per_beat
@@ -295,6 +277,4 @@ class GameEngine:
                     self.snake = Snake(start_pos=(self.grid_width // 2, self.grid_height // 2))
 
     def game_over(self) -> None:
-        """게임 오버 처리. (온라인 전송은 UI에서 플레이어 이름을 받은 후 별도 호출)"""
         self.state = GameState.GAME_OVER
-        self.register_local_score() # 오프라인 대비용 로컬 저장
