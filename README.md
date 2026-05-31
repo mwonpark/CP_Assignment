@@ -53,15 +53,13 @@ CP_Assignment/                       # 프로젝트 루트 폴더 (Client)
 └── README.md                        # 본 프로젝트 매뉴얼 파일
 
 🚀 시작하기 및 실행 방법 (How to Run)
-
 1. 저장소 클론 및 폴더 이동
+Bash
 git clone [https://github.com/Xerenia/CP_Assignment.git](https://github.com/Xerenia/CP_Assignment.git)
 cd CP_Assignment
-
 2. 필수 의존성 라이브러리 일괄 설치
 Bash
 pip install -r requirements.txt
-
 3. 임시 네온 이미지 에셋 생성 스크립트 실행
 외부 에셋 사이트를 이용하지 않고, 파이썬 그래픽 연산을 통해 assets/images/ 폴더 내에 규격에 맞는 30x30 임시 이미지 파일들을 즉석에서 자동 제작합니다.
 
@@ -106,7 +104,7 @@ python main_ui.py
 4단계 (에셋 자가 복구): Pillow 내장 라이브러리를 역이용해 디자이너 에셋 수집 전 런타임에서 임시 도트 에셋 파일들을 스스로 생성해 내는 자동화 스크립트 기능 추가.
 
 👥 팀원 및 역할 (Team Members)
-메인 아키텍트 & 개발 총괄 (Back-end / Cloud Infrastructure): 안석 (Anseok)
+메인 아키텍트 & 개발 총괄 (Back-end / Cloud Infrastructure): 박안석
 
 프론트엔드 GUI 및 이벤트 인터럽트 제어 (Front-end): 박명원, 서민우
 
