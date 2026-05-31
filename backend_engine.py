@@ -133,8 +133,13 @@ class GameEngine:
         # 온라인 서버 URL (Render.com에 배포된 Flask 서버)
         self.server_url = "https://cp-assignment-server.onrender.com/api/leaderboard"
         
-        # 오프라인 대비용 로컬 리더보드
-        self.highscore_file = Path("highscore.json")
+        # 오프라인 대비용 로컬 리더보드 경로 설정 (data 폴더 내부로 변경)
+        self.highscore_file = Path("data/highscore.json")
+        
+        # 💡 [자동 폴더 생성 로직 추가] 
+        # 상위 폴더(data/)가 없으면 생성하고, 이미 있으면 그냥 넘어갑니다.
+        self.highscore_file.parent.mkdir(parents=True, exist_ok=True)
+        
         self.local_leaderboard: list[int] = self.load_local_leaderboard()
         
         self.reset_game()
