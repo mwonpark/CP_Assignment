@@ -40,6 +40,7 @@ class UIScene(Enum):
     PLAYING = auto()          
     GAME_OVER_POPUP = auto()  
     LEADERBOARD = auto()      
+    DIFFICULTY = auto()
 
 # ==========================================
 # 3. 메인 UI 클래스
@@ -63,16 +64,21 @@ class RhythmSnakeUI:
             self.font_main = pygame.font.SysFont("malgungothic", 24, bold=True)
             self.font_large = pygame.font.SysFont("malgungothic", 48, bold=True)
             self.font_judgment = pygame.font.SysFont("malgungothic", 64, bold=True)
+            # 난이도 카드 제목(EASY/NORMAL/HARD)은 큰 폰트보다 살짝 작게 사용
+            # (NORMAL 글씨가 카드 테두리에 닿지 않게 여유 확보)
+            self.font_card_title = pygame.font.SysFont("malgungothic", 42, bold=True)
         except Exception:
             self.font_small = pygame.font.Font(None, 24)
             self.font_main = pygame.font.Font(None, 30)
             self.font_large = pygame.font.Font(None, 60)
             self.font_judgment = pygame.font.Font(None, 80)
+            self.font_card_title = pygame.font.Font(None, 54)
 
         self.engine = GameEngine(grid_width=20, grid_height=20, base_bpm=120.0)
 
         self.images: Dict[str, pygame.Surface] = {}
         self.sounds: Dict[str, Optional[pygame.mixer.Sound]] = {}
+        self.background_surface: Optional[pygame.Surface] = None
         self._load_assets()
 
         self.current_scene: UIScene = UIScene.READY
@@ -85,6 +91,11 @@ class RhythmSnakeUI:
         
         self.player_name_input: str = ""
         self.leaderboard_data: List[Dict[str, Any]] = []
+        # READY(시작) 화면에서 보여줄 버튼들의 위치는 매 프레임 계산해서 그립니다.
+        # (나중에 기능을 붙일 때도 이 Rect들을 그대로 재사용할 수 있게 저장만 해둡니다.)
+        self.ready_button_rects: Dict[str, pygame.Rect] = {}
+        self.difficulty_card_rects: Dict[str, pygame.Rect] = {}
+        self.selected_difficulty: str = "NORMAL"
 
     def _load_assets(self) -> None:
         try:
@@ -93,6 +104,7 @@ class RhythmSnakeUI:
             base_dir = Path.cwd()
             
         base_asset_dir = base_dir / "assets"
+        base_bg_dir = base_dir / "assets-images"
         
         if not base_asset_dir.exists():
             fallback_path_1 = Path(r"C:\Users\atom0\Desktop\2026 학교\컴퓨터프로그래밍\assets")
@@ -105,6 +117,25 @@ class RhythmSnakeUI:
 
         img_dir = base_asset_dir / "images"
         sound_dir = base_asset_dir / "sounds"
+
+        # 배경 이미지(메인 화면 + 게임 화면의 격자 외부)
+        # 사용자가 말한 assets-images 폴더를 우선으로 찾고,
+        # 없으면 기존 assets/images 폴더에서도 background.* 를 찾아봅니다.
+        bg_candidates: list[Path] = []
+        for ext in ("png", "jpg", "jpeg", "webp"):
+            bg_candidates.append(base_bg_dir / f"background.{ext}")
+        for ext in ("png", "jpg", "jpeg", "webp"):
+            bg_candidates.append(img_dir / f"background.{ext}")
+
+        for bg_path in bg_candidates:
+            try:
+                if bg_path.exists():
+                    bg_img = pygame.image.load(str(bg_path)).convert()
+                    self.background_surface = pygame.transform.smoothscale(bg_img, (WINDOW_WIDTH, WINDOW_HEIGHT))
+                    print(f"[시스템] 배경 이미지 로드 성공: {bg_path}")
+                    break
+            except Exception as e:
+                print(f"[시스템 경고] 배경 이미지 로드 실패: {bg_path} ({e})")
          
         try:
             if (img_dir / "snake_head.png").exists(): self.images['head'] = pygame.image.load(str(img_dir / "snake_head.png")).convert_alpha()
@@ -158,6 +189,12 @@ class RhythmSnakeUI:
                 pygame.quit()
                 sys.exit()
 
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if self.current_scene == UIScene.READY:
+                    self._handle_ready_button_click(event.pos)
+                elif self.current_scene == UIScene.DIFFICULTY:
+                    self._handle_difficulty_card_click(event.pos)
+
             if event.type == pygame.KEYDOWN:
                 if self.current_scene == UIScene.READY:
                     if event.key == pygame.K_SPACE:
@@ -189,6 +226,37 @@ class RhythmSnakeUI:
                         self.player_name_input = ""
                         try: pygame.mixer.music.stop()
                         except Exception: pass
+                elif self.current_scene == UIScene.DIFFICULTY:
+                    if event.key == pygame.K_ESCAPE:
+                        self.current_scene = UIScene.READY
+
+    def _handle_ready_button_click(self, mouse_pos: tuple[int, int]) -> None:
+        # READY 화면 버튼 클릭 처리
+        # 기능이 정해진 버튼부터 순차적으로 동작을 붙입니다.
+        for label, rect in self.ready_button_rects.items():
+            if rect.collidepoint(mouse_pos):
+                if label == "난이도 설정":
+                    self.current_scene = UIScene.DIFFICULTY
+                    break
+                if label == "게임 종료":
+                    pygame.quit()
+                    sys.exit()
+                break
+
+    def _handle_difficulty_card_click(self, mouse_pos: tuple[int, int]) -> None:
+        # 난이도 선택 화면 카드 클릭 처리
+        # 카드 클릭 시 메인 화면(READY)로 돌아갑니다.
+        for key, rect in self.difficulty_card_rects.items():
+            if rect.collidepoint(mouse_pos):
+                self.selected_difficulty = key
+
+                # (선택사항) 이미지에 있는 BPM처럼 기본 BPM을 바꿔둡니다.
+                # 실제 게임 시작 시 reset_game()에서 이 base_bpm이 사용됩니다.
+                bpm_map = {"EASY": 100.0, "NORMAL": 130.0, "HARD": 170.0}
+                self.engine.base_bpm = bpm_map.get(key, 130.0)
+
+                self.current_scene = UIScene.READY
+                break
 
     def _process_judgment(self, judgment: Judgment, current_time: float) -> None:
         if judgment == Judgment.IGNORED: return
@@ -238,10 +306,16 @@ class RhythmSnakeUI:
                 self.play_sound("gameover")
 
     def draw(self) -> None:
-        self.screen.fill(COLORS["BACKGROUND"])
+        # 배경 이미지가 있으면 먼저 깔고, 없으면 단색 배경 사용
+        if self.background_surface:
+            self.screen.blit(self.background_surface, (0, 0))
+        else:
+            self.screen.fill(COLORS["BACKGROUND"])
         
         if self.current_scene == UIScene.READY:
             self._draw_ready_screen()
+        elif self.current_scene == UIScene.DIFFICULTY:
+            self._draw_difficulty_screen()
         elif self.current_scene == UIScene.COUNTDOWN:
             self._draw_game_board() 
             self._draw_countdown_screen()
@@ -256,12 +330,147 @@ class RhythmSnakeUI:
         pygame.display.flip()
 
     def _draw_ready_screen(self) -> None:
-        title_surf = self.font_large.render("RHYTHM SNAKE", True, COLORS["PERFECT"])
-        self.screen.blit(title_surf, title_surf.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2 - 50)))
-        
+        # ------------------------------
+        # 1) 타이틀/안내 문구 위치(요구사항 반영)
+        # - 타이틀: 창 위에서 "글씨 높이의 2배"만큼 띄우기
+        # - 안내 문구: 창 하단에서 "글씨 높이"만큼 띄우기
+        # ------------------------------
+        title_text = "RHYTMN SNAKE"
+        prompt_text = "Play space to start"
+
+        title_surf = self.font_large.render(title_text, True, COLORS["PERFECT"])
+        title_h = title_surf.get_height()
+        title_margin_top = title_h * 2
+        title_center_y = int(title_margin_top + (title_h / 2))
+        self.screen.blit(title_surf, title_surf.get_rect(center=(WINDOW_WIDTH // 2, title_center_y)))
+
+        # 깜빡임 유지(기존 동작 유지)
         if (pygame.time.get_ticks() // 500) % 2 == 0:
-            prompt_surf = self.font_main.render("Press SPACE to Start", True, COLORS["TEXT_WHITE"])
-            self.screen.blit(prompt_surf, prompt_surf.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2 + 50)))
+            prompt_surf = self.font_main.render(prompt_text, True, COLORS["TEXT_WHITE"])
+            prompt_h = prompt_surf.get_height()
+            prompt_margin_bottom = prompt_h
+            prompt_center_y = int(WINDOW_HEIGHT - prompt_margin_bottom - (prompt_h / 2))
+            self.screen.blit(prompt_surf, prompt_surf.get_rect(center=(WINDOW_WIDTH // 2, prompt_center_y)))
+
+        # ------------------------------
+        # 2) 중앙에서 살짝 아래에 버튼 3개(세로 배열)
+        # - 게임 방법 / 난이도 설정 / 게임 종료
+        # - 기능은 나중에 할당 예정이므로 지금은 그리기만 합니다.
+        # ------------------------------
+        labels = ["게임 방법", "난이도 설정", "게임 종료"]
+        button_w = 320
+        button_h = 56
+        gap = 16
+
+        total_h = button_h * len(labels) + gap * (len(labels) - 1)
+        center_x = WINDOW_WIDTH // 2
+        center_y = (WINDOW_HEIGHT // 2) + 80  # "중앙에서 살짝 아래"
+        start_y = int(center_y - total_h / 2)
+
+        self.ready_button_rects = {}
+
+        mouse_pos = pygame.mouse.get_pos()
+        for i, label in enumerate(labels):
+            rect = pygame.Rect(0, 0, button_w, button_h)
+            rect.center = (center_x, start_y + i * (button_h + gap) + button_h // 2)
+            self.ready_button_rects[label] = rect
+
+            is_hover = rect.collidepoint(mouse_pos)
+            bg_color = (70, 70, 95) if is_hover else (55, 55, 75)
+            border_color = COLORS["TEXT_WHITE"] if is_hover else COLORS["TEXT_GRAY"]
+            
+            # 버튼 배경 투명도 70% (255 * 0.7 = 178.5 ≈ 179)
+            button_surface = pygame.Surface((button_w, button_h), pygame.SRCALPHA)
+            button_surface.fill((0, 0, 0, 0))
+            pygame.draw.rect(button_surface, (*bg_color, 179), button_surface.get_rect(), border_radius=10)
+            self.screen.blit(button_surface, rect.topleft)
+            pygame.draw.rect(self.screen, border_color, rect, width=2, border_radius=10)
+
+            text_surf = self.font_main.render(label, True, COLORS["TEXT_WHITE"])
+            self.screen.blit(text_surf, text_surf.get_rect(center=rect.center))
+
+        # 현재 선택된 난이도 표시(작게)
+        diff_surf = self.font_small.render(f"난이도: {self.selected_difficulty}", True, COLORS["TEXT_GRAY"])
+        self.screen.blit(diff_surf, diff_surf.get_rect(center=(WINDOW_WIDTH // 2, center_y + total_h // 2 + 50)))
+
+    def _draw_difficulty_screen(self) -> None:
+        # ------------------------------
+        # 난이도 선택 화면(이미지 레이아웃 참고)
+        # - 상단: "난이도 선택"
+        # - 하단: EASY / NORMAL / HARD 카드형 버튼(가로 배치)
+        # ------------------------------
+        self.difficulty_card_rects = {}
+
+        # 상단 타이틀 바(네온 느낌을 간단 도형으로 흉내)
+        title = "난이도 선택"
+        title_surf = self.font_large.render(title, True, (240, 240, 255))
+        title_rect = title_surf.get_rect(center=(WINDOW_WIDTH // 2, 90))
+
+        bar_padding_x = 60
+        bar_padding_y = 18
+        bar_rect = pygame.Rect(0, 0, title_rect.width + bar_padding_x * 2, title_rect.height + bar_padding_y * 2)
+        bar_rect.center = title_rect.center
+
+        # 바 배경(약간 투명)
+        bar_surface = pygame.Surface((bar_rect.width, bar_rect.height), pygame.SRCALPHA)
+        pygame.draw.rect(bar_surface, (90, 60, 140, 120), bar_surface.get_rect(), border_radius=14)
+        pygame.draw.rect(bar_surface, (170, 120, 255, 200), bar_surface.get_rect(), width=3, border_radius=14)
+        self.screen.blit(bar_surface, bar_rect.topleft)
+        self.screen.blit(title_surf, title_rect)
+
+        # 카드 설정(색상은 이미지의 느낌: 민트/노랑/핑크)
+        cards = [
+            ("EASY",   (80, 255, 210), 100, "여유로움", 1),
+            ("NORMAL", (255, 220, 90), 130, "보통",     2),
+            ("HARD",   (255, 120, 140),170, "까다로움", 3),
+        ]
+
+        card_w = 210
+        card_h = 420
+        gap = 45
+        total_w = card_w * 3 + gap * 2
+        start_x = (WINDOW_WIDTH - total_w) // 2
+        top_y = 160
+
+        mouse_pos = pygame.mouse.get_pos()
+        for idx, (name, accent, bpm, desc, stars) in enumerate(cards):
+            rect = pygame.Rect(start_x + idx * (card_w + gap), top_y, card_w, card_h)
+            self.difficulty_card_rects[name] = rect
+
+            hover = rect.collidepoint(mouse_pos)
+            selected = (self.selected_difficulty == name)
+
+            # 카드 배경(어두운 반투명) + 테두리(네온 색)
+            card_surface = pygame.Surface((card_w, card_h), pygame.SRCALPHA)
+            pygame.draw.rect(card_surface, (10, 10, 20, 160), card_surface.get_rect(), border_radius=18)
+
+            border_alpha = 255 if (hover or selected) else 190
+            pygame.draw.rect(card_surface, (*accent, border_alpha), card_surface.get_rect(), width=4, border_radius=18)
+
+            # 상단 제목
+            name_surf = self.font_card_title.render(name, True, accent)
+            card_surface.blit(name_surf, name_surf.get_rect(center=(card_w // 2, 75)))
+
+            # 별(간단히 텍스트로 표현)
+            star_text = "★" * stars
+            star_surf = self.font_main.render(star_text, True, accent)
+            card_surface.blit(star_surf, star_surf.get_rect(center=(card_w // 2, 150)))
+
+            # BPM
+            bpm_left = self.font_main.render("BPM", True, COLORS["TEXT_WHITE"])
+            bpm_val = self.font_large.render(str(bpm), True, accent)
+            card_surface.blit(bpm_left, bpm_left.get_rect(midleft=(40, 250)))
+            card_surface.blit(bpm_val, bpm_val.get_rect(midleft=(95, 252)))
+
+            # 하단 설명
+            sub1 = self.font_small.render("판정 기준", True, COLORS["TEXT_GRAY"])
+            sub2 = self.font_main.render(desc, True, accent)
+            card_surface.blit(sub1, sub1.get_rect(center=(card_w // 2, 330)))
+            card_surface.blit(sub2, sub2.get_rect(center=(card_w // 2, 370)))
+
+            # 선택 표시 점은 요청에 따라 사용하지 않습니다.
+
+            self.screen.blit(card_surface, rect.topleft)
 
     def _draw_countdown_screen(self) -> None:
         elapsed = (pygame.time.get_ticks() - self.countdown_start_ticks) / 1000.0
