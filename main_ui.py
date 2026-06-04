@@ -87,7 +87,9 @@ class RhythmSnakeUI:
         
         self.judgment_text: str = ""
         self.judgment_color: tuple[int, int, int] = COLORS["TEXT_WHITE"]
-        self.judgment_timer: float = 0.0
+        self.judgment_type: str = ""
+        self.judgment_start_time: float = 0.0
+        self.judgment_duration: float = 0.45
         
         self.player_name_input: str = ""
         self.leaderboard_data: List[Dict[str, Any]] = []
@@ -96,6 +98,29 @@ class RhythmSnakeUI:
         self.ready_button_rects: Dict[str, pygame.Rect] = {}
         self.difficulty_card_rects: Dict[str, pygame.Rect] = {}
         self.selected_difficulty: str = "NORMAL"
+        # 코나미 코드 이스터에그
+        self.konami_sequence = [
+            pygame.K_UP,
+            pygame.K_UP,
+            pygame.K_DOWN,
+            pygame.K_DOWN,
+            pygame.K_LEFT,
+            pygame.K_RIGHT,
+            pygame.K_LEFT,
+            pygame.K_RIGHT,
+            pygame.K_b,
+            pygame.K_a,
+            pygame.K_s,
+            pygame.K_t,
+            pygame.K_a,
+            pygame.K_r,
+            pygame.K_t
+        ]
+        self.konami_input = []
+        # 비트 Glow 설정
+        self.glow_max_alpha = 110      # 최대 밝기
+        self.glow_thickness = 110       # Glow 두께
+        self.glow_decay_speed = 1.2    # 사라지는 속도
 
     def _load_assets(self) -> None:
         try:
@@ -197,9 +222,17 @@ class RhythmSnakeUI:
 
             if event.type == pygame.KEYDOWN:
                 if self.current_scene == UIScene.READY:
+
+                    # 코나미 코드 입력 감지
+                    self._check_konami_code(
+                        event.key
+                    )
+
                     if event.key == pygame.K_SPACE:
                         self.current_scene = UIScene.COUNTDOWN
-                        self.countdown_start_ticks = pygame.time.get_ticks()
+                        self.countdown_start_ticks = (
+                            pygame.time.get_ticks()
+                        )
 
                 elif self.current_scene == UIScene.PLAYING:
                     direction_map = {
@@ -242,7 +275,34 @@ class RhythmSnakeUI:
                     pygame.quit()
                     sys.exit()
                 break
+    def _check_konami_code(
+        self,
+        key: int
+    ) -> None:
 
+        self.konami_input.append(key)
+
+        # 최대 길이 유지
+        if len(self.konami_input) > len(
+            self.konami_sequence
+        ):
+            self.konami_input.pop(0)
+
+        # 커맨드 일치
+        if (
+            self.konami_input
+            == self.konami_sequence
+        ):
+
+            self.engine.invincible_mode = True
+
+            # 중복 발동 방지
+            self.konami_input.clear()
+
+            print(
+                "[EASTER EGG] "
+                "무적 모드 활성화"
+            )
     def _handle_difficulty_card_click(self, mouse_pos: tuple[int, int]) -> None:
         # 난이도 선택 화면 카드 클릭 처리
         # 카드 클릭 시 메인 화면(READY)로 돌아갑니다.
@@ -259,16 +319,28 @@ class RhythmSnakeUI:
                 break
 
     def _process_judgment(self, judgment: Judgment, current_time: float) -> None:
-        if judgment == Judgment.IGNORED: return
-        self.judgment_timer = current_time + 0.3 
+        if judgment == Judgment.IGNORED:
+            return
+
+        # 새 판정이 나오면 이전 애니메이션 즉시 종료
+        self.judgment_start_time = current_time
+
         if judgment == Judgment.PERFECT:
-            self.judgment_text, self.judgment_color = "PERFECT!", COLORS["PERFECT"]
+            self.judgment_text = "PERFECT!"
+            self.judgment_color = COLORS["PERFECT"]
+            self.judgment_type = "PERFECT"
             self.play_sound("perfect")
+
         elif judgment == Judgment.GOOD:
-            self.judgment_text, self.judgment_color = "GOOD", COLORS["GOOD"]
+            self.judgment_text = "GOOD"
+            self.judgment_color = COLORS["GOOD"]
+            self.judgment_type = "GOOD"
             self.play_sound("good")
+
         elif judgment == Judgment.MISS:
-            self.judgment_text, self.judgment_color = "MISS!", COLORS["MISS"]
+            self.judgment_text = "MISS!"
+            self.judgment_color = COLORS["MISS"]
+            self.judgment_type = "MISS"
             self.play_sound("miss")
 
     def _transition_to_leaderboard(self) -> None:
@@ -318,10 +390,12 @@ class RhythmSnakeUI:
             self._draw_difficulty_screen()
         elif self.current_scene == UIScene.COUNTDOWN:
             self._draw_game_board() 
+            self._draw_beat_glow()
             self._draw_countdown_screen()
         elif self.current_scene in (UIScene.PLAYING, UIScene.GAME_OVER_POPUP):
             self._draw_game_board()
-            
+            if self.current_scene == UIScene.PLAYING:
+                self._draw_beat_glow()            
         if self.current_scene == UIScene.GAME_OVER_POPUP:
             self._draw_game_over_popup()
         elif self.current_scene == UIScene.LEADERBOARD:
@@ -390,8 +464,30 @@ class RhythmSnakeUI:
             self.screen.blit(text_surf, text_surf.get_rect(center=rect.center))
 
         # 현재 선택된 난이도 표시(작게)
-        diff_surf = self.font_small.render(f"난이도: {self.selected_difficulty}", True, COLORS["TEXT_GRAY"])
-        self.screen.blit(diff_surf, diff_surf.get_rect(center=(WINDOW_WIDTH // 2, center_y + total_h // 2 + 50)))
+# 치트 활성화 시 GOD MODE 표시
+        if self.engine.invincible_mode:
+            difficulty_text = "난이도: GOD MODE"
+        else:
+            difficulty_text = (
+                f"난이도: "
+                f"{self.selected_difficulty}"
+            )
+
+        diff_surf = self.font_small.render(
+            difficulty_text,
+            True,
+            COLORS["TEXT_GRAY"]
+        )
+
+        self.screen.blit(
+            diff_surf,
+            diff_surf.get_rect(
+                center=(
+                    WINDOW_WIDTH // 2,
+                    center_y + total_h // 2 + 50
+                )
+            )
+        )
 
     def _draw_difficulty_screen(self) -> None:
         # ------------------------------
@@ -482,6 +578,90 @@ class RhythmSnakeUI:
         
         count_surf = self.font_judgment.render(str(remain), True, COLORS["FOOD_COIN"])
         self.screen.blit(count_surf, count_surf.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2)))
+    def _draw_beat_glow(self) -> None:
+        """
+        비트에 맞춰 화면 테두리 Glow 효과
+        """
+
+        if self.current_scene not in (
+            UIScene.PLAYING,
+            UIScene.COUNTDOWN
+        ):
+            return
+
+        sec_per_beat = (
+            self.engine.rhythm.sec_per_beat
+        )
+
+        current_time = self.get_elapsed_time()
+
+        beat_progress = (
+            current_time % sec_per_beat
+        ) / sec_per_beat
+
+        glow_strength = max(
+            0.0,
+            1.0 - (
+                beat_progress
+                * self.glow_decay_speed
+            )
+        )
+
+        if glow_strength <= 0:
+            return
+
+        glow_colors = {
+            "EASY": (80, 255, 210),
+            "NORMAL": (255, 220, 90),
+            "HARD": (255, 120, 140)
+        }
+
+        glow_color = glow_colors.get(
+            self.selected_difficulty,
+            (255, 220, 90)
+        )
+
+        max_alpha = int(
+            self.glow_max_alpha
+            * glow_strength
+        )
+
+        glow_surface = pygame.Surface(
+            (WINDOW_WIDTH, WINDOW_HEIGHT),
+            pygame.SRCALPHA
+        )
+
+        layers = 14
+
+        for i in range(layers):
+            progress = i / layers
+
+            alpha = int(
+                max_alpha
+                * (1.0 - progress) ** 2
+            )
+
+            inset = int(
+                progress
+                * self.glow_thickness
+            )
+
+            pygame.draw.rect(
+                glow_surface,
+                (*glow_color, alpha),
+                (
+                    inset,
+                    inset,
+                    WINDOW_WIDTH - inset * 2,
+                    WINDOW_HEIGHT - inset * 2
+                ),
+                width=8
+            )
+
+        self.screen.blit(
+            glow_surface,
+            (0, 0)
+        )     
 
     def _draw_game_board(self) -> None:
         game_area_width = self.engine.grid_width * GRID_SIZE
@@ -533,9 +713,189 @@ class RhythmSnakeUI:
         bpm_surf = self.font_main.render(f"BPM: {int(self.engine.rhythm.current_bpm)}", True, COLORS["PERFECT"])
         self.screen.blit(bpm_surf, (offset_x + game_area_width - bpm_surf.get_width(), ui_top))
 
-        if self.current_scene == UIScene.PLAYING and self.get_elapsed_time() < self.judgment_timer:
-            judg_surf = self.font_judgment.render(self.judgment_text, True, self.judgment_color)
-            self.screen.blit(judg_surf, judg_surf.get_rect(center=(WINDOW_WIDTH // 2, (offset_y + game_area_height) // 2)))
+        # -----------------------------
+        # 판정 애니메이션
+        # PERFECT / GOOD / MISS
+        # -----------------------------
+        if (
+            self.current_scene == UIScene.PLAYING
+            and self.judgment_text
+        ):
+            current_time = self.get_elapsed_time()
+
+            elapsed = (
+                current_time
+                - self.judgment_start_time
+            )
+
+            if elapsed < self.judgment_duration:
+
+                progress = (
+                    elapsed
+                    / self.judgment_duration
+                )
+
+                # Fade out
+                alpha = int(
+                    255 * (1.0 - progress)
+                )
+
+                center_x = WINDOW_WIDTH // 2
+                center_y = (
+                    offset_y
+                    + game_area_height // 2
+                )
+
+                # ----------------
+                # PERFECT
+                # ----------------
+                if self.judgment_type == "PERFECT":
+
+                    pop_scale = (
+                        0.85
+                        + 0.35
+                        * (
+                            1
+                            - min(progress * 4, 1)
+                        )
+                    )
+
+                    y_offset = int(
+                        progress * -35
+                    )
+
+                    font_size = int(
+                        64 * pop_scale
+                    )
+
+                    font = pygame.font.SysFont(
+                        "malgungothic",
+                        font_size,
+                        bold=True
+                    )
+
+                    text_surf = font.render(
+                        self.judgment_text,
+                        True,
+                        self.judgment_color
+                    ).convert_alpha()
+
+                    text_surf.set_alpha(alpha)
+
+                    self.screen.blit(
+                        text_surf,
+                        text_surf.get_rect(
+                            center=(
+                                center_x,
+                                center_y + y_offset
+                            )
+                        )
+                    )
+
+                # ----------------
+                # GOOD
+                # ----------------
+                elif self.judgment_type == "GOOD":
+
+                    pop_scale = (
+                        0.90
+                        + 0.18
+                        * (
+                            1
+                            - min(progress * 4, 1)
+                        )
+                    )
+
+                    y_offset = int(
+                        progress * -22
+                    )
+
+                    font_size = int(
+                        56 * pop_scale
+                    )
+
+                    font = pygame.font.SysFont(
+                        "malgungothic",
+                        font_size,
+                        bold=True
+                    )
+
+                    text_surf = font.render(
+                        self.judgment_text,
+                        True,
+                        self.judgment_color
+                    ).convert_alpha()
+
+                    text_surf.set_alpha(alpha)
+
+                    self.screen.blit(
+                        text_surf,
+                        text_surf.get_rect(
+                            center=(
+                                center_x,
+                                center_y + y_offset
+                            )
+                        )
+                    )
+
+                # ----------------
+                # MISS
+                # ----------------
+                elif self.judgment_type == "MISS":
+
+                    pop_scale = (
+                        0.90
+                        + 0.22
+                        * (
+                            1
+                            - min(progress * 4, 1)
+                        )
+                    )
+
+                    # 좌우 흔들림
+                    shake = int(
+                        10
+                        * (
+                            1 - progress
+                        )
+                        * (
+                            -1 if int(progress * 30) % 2 == 0
+                            else 1
+                        )
+                    )
+
+                    # 아래로 떨어짐
+                    y_offset = int(
+                        progress * 45
+                    )
+
+                    font_size = int(
+                        58 * pop_scale
+                    )
+
+                    font = pygame.font.SysFont(
+                        "malgungothic",
+                        font_size,
+                        bold=True
+                    )
+
+                    text_surf = font.render(
+                        self.judgment_text,
+                        True,
+                        self.judgment_color
+                    ).convert_alpha()
+
+                    text_surf.set_alpha(alpha)
+
+                    self.screen.blit(
+                        text_surf,
+                        text_surf.get_rect(
+                            center=(
+                                center_x + shake,
+                                center_y + y_offset
+                            )
+                        )
+                    )
 
     def _draw_game_over_popup(self) -> None:
         overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
