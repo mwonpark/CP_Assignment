@@ -205,6 +205,7 @@ class GameEngine:
         self.stage = 1
         self.foods_eaten = 0
         self.last_beat_time = 0.0
+        self.invincible_mode = False # 이스터에그 무적 모드
         self.spawn_item()
 
     def spawn_item(self) -> None:
@@ -236,8 +237,11 @@ class GameEngine:
             self.snake.change_direction(direction)
         else:
             self.combo = 0
-            self.lives -= 1
-            if self.lives <= 0: self.game_over()
+            if not self.invincible_mode:
+                self.lives -= 1
+
+                if self.lives <= 0:
+                    self.game_over()
         return judgment
 
     def check_item_consumption(self) -> None:
@@ -269,13 +273,14 @@ class GameEngine:
             self.check_item_consumption()
             
             if self.snake.check_collision(self.grid_width, self.grid_height):
-                self.lives -= 1
-                if self.lives <= 0:
-                    self.game_over()
-                else:
-                    self.combo = 0
-                    self.snake = Snake(start_pos=(self.grid_width // 2, self.grid_height // 2))
+                if not self.invincible_mode:
+                    self.lives -= 1
+
+                    if self.lives <= 0:
+                        self.game_over()
+                    else:
+                        self.combo = 0
+                        self.snake = Snake(start_pos=(self.grid_width // 2, self.grid_height // 2))
 
     def game_over(self) -> None:
         self.state = GameState.GAME_OVER
-
