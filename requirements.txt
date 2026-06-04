@@ -4,7 +4,7 @@
 
 # 1. 프론트엔드 GUI 및 멀티미디어 코어 (main_ui.py)
 # Python 3.11 ~ 3.13 환경과 가장 호환성이 좋은 안정화 버전입니다.
-pygame>=2.6.0
+pygame
 
 # 2. 임시 그래픽 에셋 자동 생성 라이브러리 (generate_assets.py)
 # PIL(Python Imaging Library)의 최신 후속 안정판입니다.
